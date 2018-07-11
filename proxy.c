@@ -142,6 +142,18 @@ int main(void) {
     
 /* --- 復号 --- */
     
+    /* --- 1/a --- */
+    unsigned long uOne = 1;
+    mpz_t one;
+    mpz_init(one);
+    mpz_set_ui(one, uOne);
+    mpz_t a_minutes_one;
+    mpz_init(a_minutes_one);
+//    mpz_divexact(a_minutes_one, one, a);
+    mpz_t amari;
+    mpz_init(amari);
+    mpz_cdiv_qr(a_minutes_one, amari, one, a);
+    gmp_printf ("a_minutes_one: %Zd\namari: %Zd\n", a_minutes_one, amari);
 
     /* --- 領域の解放 --- */
     free(g_element_str);
