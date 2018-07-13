@@ -7,25 +7,14 @@
 #include <gmp.h>
 #include <sys/time.h>
 #include <tepla/ec.h>
-#include <openssl/sha.h>
 
-#define DEBUG 1 // 0: false 1: true
+#define DEBUG 0 // 0: false 1: true
 #define MESSAGE_SIZE 1024
 #define CODE_SIZE MESSAGE_SIZE/sizeof(long)
-
-typedef enum{
-    ADD,
-    SUB,
-    AND,
-    OR,
-    XOR
-}Mode;
 
 void print_red_color(const char *text);
 void print_green_color(const char *text);
 void create_mpz_t_random(mpz_t op, const mpz_t n);
-void data_check(const int data, const int assumption);
-void print_unsigned_char(const unsigned char *uc, const char *dataName, const size_t size);
 
 int main(void) {
 /* --- セットアップ --- */
@@ -34,8 +23,6 @@ int main(void) {
     char msg[MESSAGE_SIZE]="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
     int msg_len = strlen(msg);
     int roop_num = msg_len/sizeof(long) + 1;
-    
-
 
 /* --- 暗号化 --- */
     
@@ -47,25 +34,19 @@ int main(void) {
     mpz_t limit;
     mpz_init(limit);
     mpz_set(limit, *curve_get_order(p->g1));
-    //    mpz_pow_ui(limit, limit, 254); //curve get order(p->g1)
-    print_green_color("limit = ");
-    gmp_printf ("%s%Zd\n", "", limit);
+    print_green_color("limit = "); gmp_printf ("%Zd\n", limit);
     
     /* --- 楕円曲線 E 上の点 P の生成 --- */
     EC_POINT P;
     point_init(P, p->g1);
     point_random(P);
-    print_green_color("P =  ");
-    point_print(P);
+    print_green_color("P =  "); point_print(P);
     
     /* --- 楕円曲線 E 上の点 Q の生成 --- */
     EC_POINT Q;
     point_init(Q, p->g2);
     point_random(Q);
-    print_green_color("Q =  ");
-    point_print(Q);
-    
-    data_check(point_is_on_curve(P) + point_is_on_curve(Q), 2);
+    print_green_color("Q =  "); point_print(Q);
     
     /* --- aとrを生成 --- */
     mpz_t a, r;
@@ -79,22 +60,19 @@ int main(void) {
     element_init(g, p->g3);
     pairing_map(g, P, Q, p);
     element_pow(g, g, r);       // r乗する
-    element_print(g);
+    print_green_color("g =  "); element_print(g);
 
     int element_size = element_get_str_length(g);
     char *g_element_str;
-    g_element_str = (char *)malloc(element_size+1);
-    if(g_element_str == NULL) {
+    if((g_element_str = (char *)malloc(element_size+1)) == NULL){
         printf("メモリが確保できませんでした。\n");
         return 0;
-    }else{
-        element_get_str(g_element_str, g);
-        print_green_color("g_element_str_length = ");
-        printf("%d\n", element_size);
-        print_green_color("g_element_str = ");
-        printf("%s\n", g_element_str);
     }
-    
+    element_get_str(g_element_str, g);
+
+    print_green_color("g_element_str_length = "); printf("%d\n", element_size);
+    print_green_color("g_element_str = ");  printf("%s\n", g_element_str);
+
     /* --- g_element_strを12分割 --- */
     char g_key[12][65]={0}, *ptr;
     ptr = strtok(g_element_str, " ");
@@ -128,21 +106,18 @@ int main(void) {
         mpz_init(a);
         mpz_init(b);
         mpz_set_ui(a, enc_msg[i]); // unsigned long -> mpz_t
-        mpz_set_ui(b, enc_key[i]);
+        mpz_set_ui(b, enc_key[i%12]);
         mpz_mul(u[i], a, b); // mpz_t * mpz_t
         if(DEBUG) gmp_printf ("u[%d]: %Zd\n", i, u[i]);
         mpz_clears(a, b, NULL);
     }
     
     /* --- r(aQ) を計算 --- */
-    EC_POINT aQ;
     EC_POINT raQ;
-    point_init(aQ, p->g2);
     point_init(raQ, p->g2);
-    point_mul(aQ, a, Q);
-    point_mul(raQ, r, aQ);
-    print_green_color("raQ = ");
-    point_print(raQ);
+    point_mul(raQ, a, Q);
+    point_mul(raQ, r, raQ);
+    print_green_color("raQ = "); point_print(raQ);
     
 /* --- 復号 --- */
     
@@ -150,12 +125,7 @@ int main(void) {
     mpz_t a_one;
     mpz_init(a_one);
     mpz_invert(a_one, a, limit);
-    
-//    mpz_t tmp;
-//    mpz_init(tmp);
-//    mpz_mul(tmp,a_one,a);
-//    mpz_mod(tmp, tmp, limit);
-    
+
     /* --- (1/a)P --- */
     EC_POINT a1P;
     point_init(a1P, p->g1);
@@ -166,31 +136,28 @@ int main(void) {
     element_init(g2, p->g3);
     pairing_map(g2, a1P, raQ, p);
     if(DEBUG) {print_green_color("g2 = "); element_print(g2);}
-    if(DEBUG) if(element_cmp(g, g2) == 0) print_green_color("CHECK: OK\n");
-              else{print_green_color("CHECK: "); print_red_color("NG\n");};
-    
+    if(DEBUG) if(element_cmp(g, g2) == 0) print_green_color("g2CHECK: OK\n");
+              else{print_green_color("g2CHECK: "); print_red_color("NG\n");};
+
     int element_g2_size = element_get_str_length(g2);
     char *g2_element_str;
-    g2_element_str = (char *)malloc(element_g2_size+1);
-    if(g2_element_str == NULL) {
+    if((g2_element_str = (char *)malloc(element_g2_size+1)) == NULL) {
         printf("メモリが確保できませんでした。\n");
         return 0;
-    }else{
-        element_get_str(g2_element_str, g2);
-        print_green_color("g2_element_str_length = ");
-        printf("%d\n", element_g2_size);
-        print_green_color("g2_element_str = ");
-        printf("%s\n", g2_element_str);
     }
+    element_get_str(g2_element_str, g2);
     
-    /* --- g_element_strを12分割 --- */
-    char g2_key[12][65]={0}, *ptr2;
-    ptr2 = strtok(g2_element_str, " ");
-    strcpy(g2_key[0], ptr2);
+    print_green_color("g2_element_str_length = "); printf("%d\n", element_g2_size);
+    print_green_color("g2_element_str = "); printf("%s\n", g2_element_str);
+
+    /* --- g2_element_strを12分割 --- */
+    char g2_key[12][65]={0};
+    ptr = strtok(g2_element_str, " ");
+    strcpy(g2_key[0], ptr);
     i=1;
-    while(ptr2 != NULL) {
-        ptr2 = strtok(NULL, " ");
-        if(ptr2 != NULL) strcpy(g2_key[i], ptr2);
+    while(ptr != NULL) {
+        ptr = strtok(NULL, " ");
+        if(ptr != NULL) strcpy(g2_key[i], ptr);
         i++;
     }
     if(DEBUG) for(i=0; i<12; i++) printf("%s\n", g2_key[i]);
@@ -209,37 +176,35 @@ int main(void) {
     for(i=0;i<roop_num;i++) {
         mpz_t a;
         mpz_init(a);
-        mpz_set_ui(a, enc_key2[i]);
+        mpz_set_ui(a, enc_key2[i%12]);
         mpz_divexact(dec_msg[i], u[i], a); // mpz_t / mpz_t
         if(DEBUG) gmp_printf ("dec_msg[%d]: %Zd\n", i, dec_msg[i]);
         mpz_clears(a, NULL);
     }
-    
+
     unsigned long dec_msg_long[CODE_SIZE];
     for(i=0;i<roop_num;i++) dec_msg_long[i] = mpz_get_ui(dec_msg[i]);
 
-    
     /* --- decode --- */
     char msg_decode[CODE_SIZE];
     memset(msg_decode,0,sizeof(msg_decode));
     memcpy(msg_decode,dec_msg_long,strlen(msg));
-    print_green_color("message = ");
-    printf("%s\n", msg_decode);
+    print_green_color("message = "); printf("%s\n", msg_decode);
 
-    
 /* --- 領域の解放 --- */
     free(g_element_str);
+    free(g2_element_str);
+    for(i=0;i<roop_num;i++) mpz_clear(u[i]);
+    for(i=0;i<roop_num;i++) mpz_clear(dec_msg[i]);
     mpz_clears(limit, a, r,a_one, dec_msg, NULL);
-    for(i=0;i<msg_len/sizeof(long);i++) mpz_clear(u[i]);
     point_clear(P);
     point_clear(Q);
-    point_clear(aQ);
     point_clear(raQ);
     point_clear(a1P);
     element_clear(g);
     element_clear(g2);
     pairing_clear(p);
-    
+
     print_green_color("--- 正常終了 ---\n");
 }
 
@@ -265,34 +230,6 @@ void create_mpz_t_random(mpz_t op, const mpz_t n) {
     mpz_urandomm(op, state, n);
     
     gmp_randclear(state);
-}
-
-/* -----------------------------------------------
- * unsigned char(SHA256でハッシュ化した値)を出力する関数
- * $0 出力するu_char
- * $1 データ名（出力の最初にprintされる）
- * $2 データサイズ
- -----------------------------------------------*/
-void print_unsigned_char(const unsigned char *uc, const char *dataName, const size_t size){
-    printf("\x1b[32m%s = \x1b[39m", dataName);
-    for (size_t i=0; i<size; i++){
-        printf("%02x", uc[i] );
-    }
-    printf("\n");
-}
-
-/* -----------------------------------------------
- * データをチェックする関数
- * $0 チェックしたいデータ
- * $1 理想の値
- -----------------------------------------------*/
-void data_check(const int data, const int assumption) {
-    if(data == assumption){
-        print_green_color("CHECK: OK\n");
-    } else {
-        print_green_color("CHECK: ");
-        print_red_color("NG\n");
-    }
 }
 
 /* -----------------------------------------------
