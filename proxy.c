@@ -33,6 +33,7 @@ int main(void) {
 //    char msg[MESSAGE_SIZE]="Hello World!";
     char msg[MESSAGE_SIZE]="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
     int msg_len = strlen(msg);
+    int roop_num = msg_len/sizeof(long) + 1;
     
 
 
@@ -114,15 +115,15 @@ int main(void) {
     memset(enc_key,0,sizeof(enc_key));
     //encode(msg)
     memcpy(enc_msg,msg,msg_len);
-    if(DEBUG) for(i=0;i<msg_len/sizeof(long)+1;i++) printf("enc_msg[%d]:%ld\n",i,enc_msg[i]);
+    if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_msg[%d]:%ld\n",i,enc_msg[i]);
     //encode(g_key)
     memcpy(enc_key,g_key,msg_len);
-    if(DEBUG) for(i=0;i<msg_len/sizeof(long)+1;i++) printf("enc_key[%d]:%ld\n",i,enc_key[i]);
+    if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_key[%d]:%ld\n",i,enc_key[i]);
 
     /* --- 文字列と鍵を掛け算 --- */
-    mpz_t u[msg_len];
-    for(i=0;i<msg_len/sizeof(long);i++) mpz_init(u[i]);
-    for(i=0;i<msg_len/sizeof(long);i++) {
+    mpz_t u[roop_num];
+    for(i=0;i<roop_num;i++) mpz_init(u[i]);
+    for(i=0;i<roop_num;i++) {
         mpz_t a, b;
         mpz_init(a);
         mpz_init(b);
@@ -130,6 +131,7 @@ int main(void) {
         mpz_set_ui(b, enc_key[i]);
         mpz_mul(u[i], a, b); // mpz_t * mpz_t
         if(DEBUG) gmp_printf ("u[%d]: %Zd\n", i, u[i]);
+        mpz_clears(a, b, NULL);
     }
     
     /* --- r(aQ) を計算 --- */
@@ -167,17 +169,75 @@ int main(void) {
     if(DEBUG) if(element_cmp(g, g2) == 0) print_green_color("CHECK: OK\n");
               else{print_green_color("CHECK: "); print_red_color("NG\n");};
     
+    int element_g2_size = element_get_str_length(g2);
+    char *g2_element_str;
+    g2_element_str = (char *)malloc(element_g2_size+1);
+    if(g2_element_str == NULL) {
+        printf("メモリが確保できませんでした。\n");
+        return 0;
+    }else{
+        element_get_str(g2_element_str, g2);
+        print_green_color("g2_element_str_length = ");
+        printf("%d\n", element_g2_size);
+        print_green_color("g2_element_str = ");
+        printf("%s\n", g2_element_str);
+    }
     
+    /* --- g_element_strを12分割 --- */
+    char g2_key[12][65]={0}, *ptr2;
+    ptr2 = strtok(g2_element_str, " ");
+    strcpy(g2_key[0], ptr2);
+    i=1;
+    while(ptr2 != NULL) {
+        ptr2 = strtok(NULL, " ");
+        if(ptr2 != NULL) strcpy(g2_key[i], ptr2);
+        i++;
+    }
+    if(DEBUG) for(i=0; i<12; i++) printf("%s\n", g2_key[i]);
+    
+    /* --- 文字列を数値に変換 --- */
+    //init
+    unsigned long enc_key2[CODE_SIZE];
+    memset(enc_key2,0,sizeof(enc_key2));
+    //encode(g2_key)
+    memcpy(enc_key2,g2_key,msg_len);
+    if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_key2[%d]:%ld\n",i,enc_key2[i]);
+    
+    /* --- 文字列と鍵を割り算 --- */
+    mpz_t dec_msg[msg_len];
+    for(i=0;i<roop_num;i++) mpz_init(dec_msg[i]);
+    for(i=0;i<roop_num;i++) {
+        mpz_t a;
+        mpz_init(a);
+        mpz_set_ui(a, enc_key2[i]);
+        mpz_divexact(dec_msg[i], u[i], a); // mpz_t / mpz_t
+        if(DEBUG) gmp_printf ("dec_msg[%d]: %Zd\n", i, dec_msg[i]);
+        mpz_clears(a, NULL);
+    }
+    
+    unsigned long dec_msg_long[CODE_SIZE];
+    for(i=0;i<roop_num;i++) dec_msg_long[i] = mpz_get_ui(dec_msg[i]);
 
-    /* --- 領域の解放 --- */
+    
+    /* --- decode --- */
+    char msg_decode[CODE_SIZE];
+    memset(msg_decode,0,sizeof(msg_decode));
+    memcpy(msg_decode,dec_msg_long,strlen(msg));
+    print_green_color("message = ");
+    printf("%s\n", msg_decode);
+
+    
+/* --- 領域の解放 --- */
     free(g_element_str);
-    mpz_clears(limit, a, r,a_one, NULL);
+    mpz_clears(limit, a, r,a_one, dec_msg, NULL);
     for(i=0;i<msg_len/sizeof(long);i++) mpz_clear(u[i]);
     point_clear(P);
     point_clear(Q);
     point_clear(aQ);
     point_clear(raQ);
+    point_clear(a1P);
     element_clear(g);
+    element_clear(g2);
     pairing_clear(p);
     
     print_green_color("--- 正常終了 ---\n");
