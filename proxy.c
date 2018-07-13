@@ -34,19 +34,21 @@ int main(void) {
     char msg[MESSAGE_SIZE]="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
     int msg_len = strlen(msg);
     
-    /* --- 上限値の設定 --- */
-    mpz_t limit;
-    mpz_init(limit);
-    mpz_set_ui(limit, 2);
-    mpz_pow_ui(limit, limit, 254);
-    print_green_color("limit = ");
-    gmp_printf ("%s%Zd\n", "", limit);
+
 
 /* --- 暗号化 --- */
     
     /* --- ペアリングを生成 --- */
     EC_PAIRING p;
     pairing_init(p, "ECBN254a");
+    
+    /* --- 上限値の設定 --- */
+    mpz_t limit;
+    mpz_init(limit);
+    mpz_set(limit, *curve_get_order(p->g1));
+    //    mpz_pow_ui(limit, limit, 254); //curve get order(p->g1)
+    print_green_color("limit = ");
+    gmp_printf ("%s%Zd\n", "", limit);
     
     /* --- 楕円曲線 E 上の点 P の生成 --- */
     EC_POINT P;
@@ -143,21 +145,33 @@ int main(void) {
 /* --- 復号 --- */
     
     /* --- 1/a --- */
-    unsigned long uOne = 1;
-    mpz_t one;
-    mpz_init(one);
-    mpz_set_ui(one, uOne);
-    mpz_t a_minutes_one;
-    mpz_init(a_minutes_one);
-//    mpz_divexact(a_minutes_one, one, a);
-    mpz_t amari;
-    mpz_init(amari);
-    mpz_cdiv_qr(a_minutes_one, amari, one, a);
-    gmp_printf ("a_minutes_one: %Zd\namari: %Zd\n", a_minutes_one, amari);
+    mpz_t a_one;
+    mpz_init(a_one);
+    mpz_invert(a_one, a, limit);
+    
+//    mpz_t tmp;
+//    mpz_init(tmp);
+//    mpz_mul(tmp,a_one,a);
+//    mpz_mod(tmp, tmp, limit);
+    
+    /* --- (1/a)P --- */
+    EC_POINT a1P;
+    point_init(a1P, p->g1);
+    point_mul(a1P, a_one, P);
+
+    /* --- g2 = e((1/a)P, raQ) = e(P, Q)^r --- */
+    Element g2;
+    element_init(g2, p->g3);
+    pairing_map(g2, a1P, raQ, p);
+    if(DEBUG) {print_green_color("g2 = "); element_print(g2);}
+    if(DEBUG) if(element_cmp(g, g2) == 0) print_green_color("CHECK: OK\n");
+              else{print_green_color("CHECK: "); print_red_color("NG\n");};
+    
+    
 
     /* --- 領域の解放 --- */
     free(g_element_str);
-    mpz_clears(limit, a, r, NULL);
+    mpz_clears(limit, a, r,a_one, NULL);
     for(i=0;i<msg_len/sizeof(long);i++) mpz_clear(u[i]);
     point_clear(P);
     point_clear(Q);
