@@ -119,72 +119,90 @@ int main(void) {
     point_mul(raQ, r, raQ);
     print_green_color("raQ = "); point_print(raQ);
     
-/* --- 復号 --- */
+/* --- 再暗号化 --- */
+    /* --- bを生成 --- */
+    mpz_t b;
+    mpz_init(b);
+    create_mpz_t_random(b, limit);
     
-    /* --- 1/a --- */
+    /* --- 1/aを計算 --- */
     mpz_t a_one;
     mpz_init(a_one);
     mpz_invert(a_one, a, limit);
-
-    /* --- (1/a)P --- */
-    EC_POINT a1P;
-    point_init(a1P, p->g1);
-    point_mul(a1P, a_one, P);
-
-    /* --- g2 = e((1/a)P, raQ) = e(P, Q)^r --- */
-    Element g2;
-    element_init(g2, p->g3);
-    pairing_map(g2, a1P, raQ, p);
-    if(DEBUG) {print_green_color("g2 = "); element_print(g2);}
-    if(DEBUG) if(element_cmp(g, g2) == 0) print_green_color("g2CHECK: OK\n");
-              else{print_green_color("g2CHECK: "); print_red_color("NG\n");};
-
-    int element_g2_size = element_get_str_length(g2);
-    char *g2_element_str;
-    if((g2_element_str = (char *)malloc(element_g2_size+1)) == NULL) {
+    
+    /* --- (1/a)bP を計算(再暗号化鍵) --- */
+    EC_POINT reEncKey;
+    point_init(reEncKey, p->g1);
+    point_mul(reEncKey, b, P);
+    point_mul(reEncKey, a_one, reEncKey);
+    print_green_color("reEncKey = "); point_print(reEncKey);
+    
+    /* --- g^(rb)を計算 --- */
+    Element grb;
+    element_init(grb, p->g3);
+    pairing_map(grb, reEncKey, raQ, p);
+    print_green_color("grb =  "); element_print(grb);
+    
+/* --- 復号 --- */
+    /* --- 1/bを計算 --- */
+    mpz_t b_one;
+    mpz_init(b_one);
+    mpz_invert(b_one, b, limit);
+    
+    /* --- (g^(rb))^(1/b) = g^r --- */
+    Element g3;
+    element_init(g3, p->g3);
+    element_pow(g3, grb, b_one);
+    print_green_color("g3 =  "); element_print(g3);
+    if(element_cmp(g, g3) == 0) print_green_color("g3CHECK: OK\n");
+    else{print_green_color("g3CHECK: "); print_red_color("NG\n");};
+    
+    int element_g3_size = element_get_str_length(g3);
+    char *g3_element_str;
+    if((g3_element_str = (char *)malloc(element_g3_size+1)) == NULL) {
         printf("メモリが確保できませんでした。\n");
         return 0;
     }
-    element_get_str(g2_element_str, g2);
+    element_get_str(g3_element_str, g3);
     
-    print_green_color("g2_element_str_length = "); printf("%d\n", element_g2_size);
-    print_green_color("g2_element_str = "); printf("%s\n", g2_element_str);
-
-    /* --- g2_element_strを12分割 --- */
-    char g2_key[12][65]={0};
-    ptr = strtok(g2_element_str, " ");
-    strcpy(g2_key[0], ptr);
+    print_green_color("g3_element_str_length = "); printf("%d\n", element_g3_size);
+    print_green_color("g3_element_str = "); printf("%s\n", g3_element_str);
+    
+    /* --- g3_element_strを12分割 --- */
+    char g3_key[12][65]={0};
+    ptr = strtok(g3_element_str, " ");
+    strcpy(g3_key[0], ptr);
     i=1;
     while(ptr != NULL) {
         ptr = strtok(NULL, " ");
-        if(ptr != NULL) strcpy(g2_key[i], ptr);
-        i++;
+        if(ptr != NULL) strcpy(g3_key[i], ptr);
+            i++;
     }
-    if(DEBUG) for(i=0; i<12; i++) printf("%s\n", g2_key[i]);
+    if(DEBUG) for(i=0; i<12; i++) printf("%s\n", g3_key[i]);
     
     /* --- 文字列を数値に変換 --- */
     //init
-    unsigned long enc_key2[CODE_SIZE];
-    memset(enc_key2,0,sizeof(enc_key2));
+    unsigned long enc_key3[CODE_SIZE];
+    memset(enc_key3, 0, sizeof(enc_key3));
     //encode(g2_key)
-    memcpy(enc_key2,g2_key,msg_len);
-    if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_key2[%d]:%ld\n",i,enc_key2[i]);
+    memcpy(enc_key3, g3_key, msg_len);
+    if(DEBUG) for(i=0; i<roop_num; i++) printf("enc_key3[%d]:%ld\n", i, enc_key3[i]);
     
     /* --- 文字列と鍵を割り算 --- */
     mpz_t dec_msg[msg_len];
-    for(i=0;i<roop_num;i++) mpz_init(dec_msg[i]);
-    for(i=0;i<roop_num;i++) {
+    for(i=0; i<roop_num; i++) mpz_init(dec_msg[i]);
+    for(i=0; i<roop_num; i++) {
         mpz_t a;
         mpz_init(a);
-        mpz_set_ui(a, enc_key2[i%12]);
+        mpz_set_ui(a, enc_key3[i%12]);
         mpz_divexact(dec_msg[i], u[i], a); // mpz_t / mpz_t
         if(DEBUG) gmp_printf ("dec_msg[%d]: %Zd\n", i, dec_msg[i]);
         mpz_clears(a, NULL);
     }
-
+    
     unsigned long dec_msg_long[CODE_SIZE];
     for(i=0;i<roop_num;i++) dec_msg_long[i] = mpz_get_ui(dec_msg[i]);
-
+    
     /* --- decode --- */
     char msg_decode[CODE_SIZE];
     memset(msg_decode,0,sizeof(msg_decode));
@@ -193,16 +211,15 @@ int main(void) {
 
 /* --- 領域の解放 --- */
     free(g_element_str);
-    free(g2_element_str);
+    free(g3_element_str);
     for(i=0;i<roop_num;i++) mpz_clear(u[i]);
     for(i=0;i<roop_num;i++) mpz_clear(dec_msg[i]);
-    mpz_clears(limit, a, r,a_one, dec_msg, NULL);
+    mpz_clears(limit, a, r, a_one, b_one, b, NULL);
     point_clear(P);
     point_clear(Q);
     point_clear(raQ);
-    point_clear(a1P);
     element_clear(g);
-    element_clear(g2);
+    element_clear(g3);
     pairing_clear(p);
 
     print_green_color("--- 正常終了 ---\n");
@@ -247,6 +264,3 @@ void print_green_color(const char *text) {
 void print_red_color(const char *text) {
     printf("\x1b[31m%s\x1b[39m", text);
 }
-
-
-
