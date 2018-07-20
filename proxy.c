@@ -10,7 +10,7 @@
 
 #define DEBUG 0 // 0: false 1: true
 #define MESSAGE_SIZE 1024
-#define CODE_SIZE MESSAGE_SIZE/sizeof(int)
+#define CODE_SIZE MESSAGE_SIZE/sizeof(long)
 
 void print_red_color(const char *text);
 void print_green_color(const char *text);
