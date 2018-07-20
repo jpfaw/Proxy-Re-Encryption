@@ -10,11 +10,13 @@
 
 #define DEBUG 0 // 0: false 1: true
 #define MESSAGE_SIZE 1024
-#define CODE_SIZE MESSAGE_SIZE/sizeof(long)
+#define CODE_SIZE MESSAGE_SIZE/sizeof(int)
 
 void print_red_color(const char *text);
 void print_green_color(const char *text);
 void create_mpz_t_random(mpz_t op, const mpz_t n);
+unsigned long convert_hex_string_into_long_type(const char *x);
+void convert_long_type_into_hex_string(char *result, const unsigned long x);
 
 int main(void) {
 /* --- セットアップ --- */
@@ -25,7 +27,6 @@ int main(void) {
     int roop_num = msg_len/sizeof(long) + 1;
 
 /* --- 暗号化 --- */
-    
     /* --- ペアリングを生成 --- */
     EC_PAIRING p;
     pairing_init(p, "ECBN254a");
@@ -61,94 +62,91 @@ int main(void) {
     pairing_map(g, P, Q, p);
     element_pow(g, g, r);       // r乗する
     print_green_color("g =  "); element_print(g);
-
-    int element_size = element_get_str_length(g);
-    char *g_element_str;
-    if((g_element_str = (char *)malloc(element_size+1)) == NULL){
-        printf("メモリが確保できませんでした。\n");
-        return 0;
-    }
-    element_get_str(g_element_str, g);
-
-    print_green_color("g_element_str_length = "); printf("%d\n", element_size);
-    print_green_color("g_element_str = ");  printf("%s\n", g_element_str);
-
-    /* --- g_element_strを12分割 --- */
-    char g_key[12][65]={0}, *ptr;
-    ptr = strtok(g_element_str, " ");
-    strcpy(g_key[0], ptr);
-    i=1;
-    while(ptr != NULL) {
-        ptr = strtok(NULL, " ");
-        if(ptr != NULL) strcpy(g_key[i], ptr);
-        i++;
-    }
-    if(DEBUG) for(i=0; i<12; i++) printf("%s\n", g_key[i]);
     
-    /* --- 文字列を数値に変換 --- */
+    /* --- 平文をlong型にした後、16進数表記のchar型に変換 --- */
     //init
     unsigned long enc_msg[CODE_SIZE];
     memset(enc_msg,0,sizeof(enc_msg));
-    unsigned long enc_key[CODE_SIZE];
-    memset(enc_key,0,sizeof(enc_key));
     //encode(msg)
     memcpy(enc_msg,msg,msg_len);
     if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_msg[%d]:%ld\n",i,enc_msg[i]);
-    //encode(g_key)
-    memcpy(enc_key,g_key,msg_len);
-    if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_key[%d]:%ld\n",i,enc_key[i]);
-
-    /* --- 文字列と鍵を掛け算 --- */
-    mpz_t u[roop_num];
-    for(i=0;i<roop_num;i++) mpz_init(u[i]);
+    /* --- 16進数表記のchar型平文をElement型に変換 --- */
+    Element element_msg[roop_num/12+1];
+    char element_assign_str[1000] = "";
+    int element_msg_index_counter = 0;
     for(i=0;i<roop_num;i++) {
-        mpz_t a, b;
-        mpz_init(a);
-        mpz_init(b);
-        mpz_set_ui(a, enc_msg[i]); // unsigned long -> mpz_t
-        mpz_set_ui(b, enc_key[i%12]);
-        mpz_mul(u[i], a, b); // mpz_t * mpz_t
-        if(DEBUG) gmp_printf ("u[%d]: %Zd\n", i, u[i]);
-        mpz_clears(a, b, NULL);
+        char tmp2[100];
+        convert_long_type_into_hex_string(tmp2, enc_msg[i]);
+        strcat(element_assign_str, tmp2);
+        if(i != 0 && i%11==0) {
+            element_init(element_msg[element_msg_index_counter], p->g3);
+            element_set_str(element_msg[element_msg_index_counter++], element_assign_str);
+        } else {
+            strcat(element_assign_str, " ");
+        }
+    }
+    if(i%11!=0){ // 残りカスの処理
+        for(i = 12-i%11;i>0;i--) {
+            strcat(element_assign_str, "0");
+            if(i!=1) strcat(element_assign_str, " ");
+        }
+        if(DEBUG) printf("element_assign_str: %s\n", element_assign_str);
+        element_init(element_msg[element_msg_index_counter], p->g3);
+        element_set_str(element_msg[element_msg_index_counter++], element_assign_str);
+    }
+    if(DEBUG) for(i=0;i<element_msg_index_counter;i++){
+        printf("element_msg[%d]: ",i);
+        element_print(element_msg[i]);
     }
     
+    /* --- 文字列と鍵を掛け算 --- */
+    Element element_msg_key_calc_result[element_msg_index_counter];
+    for(i=0;i<element_msg_index_counter;i++) {
+        element_init(element_msg_key_calc_result[i], p->g3);
+        element_mul(element_msg_key_calc_result[i], element_msg[i], g);
+    }
+    if(DEBUG) for(i=0;i<element_msg_index_counter;i++){
+        printf("element_msg_key_calc_result[%d]: ",i);
+        element_print(element_msg_key_calc_result[i]);
+    }
+
     /* --- r(aQ) を計算 --- */
     EC_POINT raQ;
     point_init(raQ, p->g2);
     point_mul(raQ, a, Q);
     point_mul(raQ, r, raQ);
     print_green_color("raQ = "); point_print(raQ);
-    
+
 /* --- 再暗号化 --- */
     /* --- bを生成 --- */
     mpz_t b;
     mpz_init(b);
     create_mpz_t_random(b, limit);
-    
+
     /* --- 1/aを計算 --- */
     mpz_t a_one;
     mpz_init(a_one);
     mpz_invert(a_one, a, limit);
-    
+
     /* --- (1/a)bP を計算(再暗号化鍵) --- */
     EC_POINT reEncKey;
     point_init(reEncKey, p->g1);
     point_mul(reEncKey, b, P);
     point_mul(reEncKey, a_one, reEncKey);
     print_green_color("reEncKey = "); point_print(reEncKey);
-    
+
     /* --- g^(rb)を計算 --- */
     Element grb;
     element_init(grb, p->g3);
     pairing_map(grb, reEncKey, raQ, p);
     print_green_color("grb =  "); element_print(grb);
-    
+
 /* --- 復号 --- */
     /* --- 1/bを計算 --- */
     mpz_t b_one;
     mpz_init(b_one);
     mpz_invert(b_one, b, limit);
-    
+
     /* --- (g^(rb))^(1/b) = g^r --- */
     Element g3;
     element_init(g3, p->g3);
@@ -157,52 +155,48 @@ int main(void) {
     if(element_cmp(g, g3) == 0) print_green_color("g3CHECK: OK\n");
     else{print_green_color("g3CHECK: "); print_red_color("NG\n");};
     
-    int element_g3_size = element_get_str_length(g3);
-    char *g3_element_str;
-    if((g3_element_str = (char *)malloc(element_g3_size+1)) == NULL) {
-        printf("メモリが確保できませんでした。\n");
-        return 0;
+    Element g3_inv;
+    element_init(g3_inv, p->g3);
+    element_inv(g3_inv, g3);
+    
+    /* --- 文字列と鍵を割り算((m*g^r)*(1/g^r) --- */
+    Element element_crypto_g3_calc_result[element_msg_index_counter];
+    for(i=0;i<element_msg_index_counter;i++) {
+        element_init(element_crypto_g3_calc_result[i], p->g3);
+        element_mul(element_crypto_g3_calc_result[i], element_msg_key_calc_result[i], g3_inv);
     }
-    element_get_str(g3_element_str, g3);
-    
-    print_green_color("g3_element_str_length = "); printf("%d\n", element_g3_size);
-    print_green_color("g3_element_str = "); printf("%s\n", g3_element_str);
-    
-    /* --- g3_element_strを12分割 --- */
-    char g3_key[12][65]={0};
-    ptr = strtok(g3_element_str, " ");
-    strcpy(g3_key[0], ptr);
-    i=1;
-    while(ptr != NULL) {
-        ptr = strtok(NULL, " ");
-        if(ptr != NULL) strcpy(g3_key[i], ptr);
-            i++;
-    }
-    if(DEBUG) for(i=0; i<12; i++) printf("%s\n", g3_key[i]);
-    
-    /* --- 文字列を数値に変換 --- */
-    //init
-    unsigned long enc_key3[CODE_SIZE];
-    memset(enc_key3, 0, sizeof(enc_key3));
-    //encode(g2_key)
-    memcpy(enc_key3, g3_key, msg_len);
-    if(DEBUG) for(i=0; i<roop_num; i++) printf("enc_key3[%d]:%ld\n", i, enc_key3[i]);
-    
-    /* --- 文字列と鍵を割り算 --- */
-    mpz_t dec_msg[msg_len];
-    for(i=0; i<roop_num; i++) mpz_init(dec_msg[i]);
-    for(i=0; i<roop_num; i++) {
-        mpz_t a;
-        mpz_init(a);
-        mpz_set_ui(a, enc_key3[i%12]);
-        mpz_divexact(dec_msg[i], u[i], a); // mpz_t / mpz_t
-        if(DEBUG) gmp_printf ("dec_msg[%d]: %Zd\n", i, dec_msg[i]);
-        mpz_clears(a, NULL);
+    if(DEBUG) for(i=0;i<element_msg_index_counter;i++){
+        printf("element_crypto_g3_calc_result[%d]: ",i);
+        element_print(element_crypto_g3_calc_result[i]);
     }
     
+    /* --- 計算結果をchar型に変換 --- */
     unsigned long dec_msg_long[CODE_SIZE];
-    for(i=0;i<roop_num;i++) dec_msg_long[i] = mpz_get_ui(dec_msg[i]);
-    
+    long dec_msg_long_counter = 0;
+    for(i=0;i<element_msg_index_counter;i++){
+        int element_crypto_g3_calc_result_size = element_get_str_length(element_crypto_g3_calc_result[i]);
+        char *element_crypto_g3_calc_result_str;
+        if((element_crypto_g3_calc_result_str = (char *)malloc(element_crypto_g3_calc_result_size+1)) == NULL) {
+            printf("メモリが確保できませんでした。\n");
+            return 0;
+        }
+        element_get_str(element_crypto_g3_calc_result_str, element_crypto_g3_calc_result[i]);
+        /* --- elementから変換したcharをスペースで分割してlong型に変換 --- */
+        char dec_msg_char[12][128];
+        char *ptr;
+        ptr = strtok(element_crypto_g3_calc_result_str, " ");
+        strcpy(dec_msg_char[0], ptr); i=1;
+        while(ptr != NULL) {
+            ptr = strtok(NULL, " ");
+            if(ptr != NULL) strcpy(dec_msg_char[i], ptr);
+            i++;
+        }
+        for(i=0;i<12;i++) if(strcmp(dec_msg_char[i], "0")!=0)
+            dec_msg_long[dec_msg_long_counter++] = convert_hex_string_into_long_type(dec_msg_char[i]);
+        free(element_crypto_g3_calc_result_str);
+    }
+    if(DEBUG) for(i=0;i<dec_msg_long_counter;i++) printf("dec_msg_long[%d]: %ld\n",i,dec_msg_long[i]);
+
     /* --- decode --- */
     char msg_decode[CODE_SIZE];
     memset(msg_decode,0,sizeof(msg_decode));
@@ -210,16 +204,18 @@ int main(void) {
     print_green_color("message = "); printf("%s\n", msg_decode);
 
 /* --- 領域の解放 --- */
-    free(g_element_str);
-    free(g3_element_str);
-    for(i=0;i<roop_num;i++) mpz_clear(u[i]);
-    for(i=0;i<roop_num;i++) mpz_clear(dec_msg[i]);
-    mpz_clears(limit, a, r, a_one, b_one, b, NULL);
+    mpz_clears(limit, a, r, a_one, b, b_one, NULL);
     point_clear(P);
     point_clear(Q);
     point_clear(raQ);
+    point_clear(reEncKey);
     element_clear(g);
+    element_clear(grb);
     element_clear(g3);
+    element_clear(g3_inv);
+    for(i=0;i<element_msg_index_counter;i++) element_clear(element_msg[i]);
+    for(i=0;i<element_msg_index_counter;i++) element_clear(element_msg_key_calc_result[i]);
+    for(i=0;i<element_msg_index_counter;i++) element_clear(element_crypto_g3_calc_result[i]);
     pairing_clear(p);
 
     print_green_color("--- 正常終了 ---\n");
@@ -263,4 +259,39 @@ void print_green_color(const char *text) {
  -----------------------------------------------*/
 void print_red_color(const char *text) {
     printf("\x1b[31m%s\x1b[39m", text);
+}
+
+/* -----------------------------------------------
+ * 符号なしlong型整数を16進数表記のchar型文字列に変換する関数
+ * $0 変換結果を入れるchar型配列のアドレス
+ * $1 変換したい符号なしlong型整数
+ -----------------------------------------------*/
+void convert_long_type_into_hex_string(char *result, const unsigned long x){
+    unsigned long original = x;
+    *result = '\0';
+    do{
+        char tmp;
+        sprintf(&tmp, "%X", original%16);
+        strcat(result, &tmp);
+    }while((original /= 16) != 0);
+    char t, *p, *q;
+    for (p = result, q = &(result[strlen(result)-1]); p < q; p++, q--) t = *p, *p = *q, *q = t;
+}
+
+/* -----------------------------------------------
+ * 16進数表記のchar型文字列を符号なしlong型整数に変換する関数
+ * $0 変換したいchar型配列のアドレス
+ * @return 変換結果の符号なしlong型整数
+ -----------------------------------------------*/
+unsigned long convert_hex_string_into_long_type(const char *x){
+    unsigned long result=0, exp=1;
+    int length = strlen(x)-1, i;
+    for(i=length; i>=0; i--){
+        char tmp_char = *(x+i);
+        unsigned long tmp_long;
+        sscanf(&tmp_char, "%X", &tmp_long);
+        result += tmp_long*exp;
+        exp *= 16;
+    }
+    return result;
 }
