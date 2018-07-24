@@ -8,8 +8,8 @@
 #include <sys/time.h>
 #include <tepla/ec.h>
 
-#define DEBUG 0 // 0: false 1: true
-#define MESSAGE_SIZE 1024
+#define DEBUG 1 // 0: false 1: true
+#define MESSAGE_SIZE 10000
 #define CODE_SIZE MESSAGE_SIZE/sizeof(long)
 
 void print_red_color(const char *text);
@@ -22,7 +22,7 @@ int main(void) {
 /* --- セットアップ --- */
     int i;
 //    char msg[MESSAGE_SIZE]="Hello World!";
-    char msg[MESSAGE_SIZE]="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
+    char msg[MESSAGE_SIZE]="We, the Japanese People, acting through our duly elected representatives in the National Diet, determined that we shall secure for ourselves and our posterity the fruits of peaceful cooperation with all nations and the blessings of liberty throughout this land, and resolved that never again shall we be visited with the horrors of war through the action of government, do proclaim the sovereignty of the people's will and do ordain and establish this Constitution, founded upon the universal principle that government is a sacred trust the authority for which is derived from the people, the powers of which are exercised by the representatives of the people, and the benefits of which are enjoyed by the people; and we reject and revoke all constitutions, ordinances, laws and rescripts in conflict herewith.";
     int msg_len = strlen(msg);
     int roop_num = msg_len/sizeof(long) + 1;
 
@@ -65,30 +65,36 @@ int main(void) {
     
     /* --- 平文をlong型にした後、16進数表記のchar型に変換 --- */
     //init
-    unsigned long enc_msg[CODE_SIZE];
-    memset(enc_msg,0,sizeof(enc_msg));
+    unsigned long enc_msg_long[CODE_SIZE];
+    memset(enc_msg_long,0,sizeof(enc_msg_long));
     //encode(msg)
-    memcpy(enc_msg,msg,msg_len);
-    if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_msg[%d]:%ld\n",i,enc_msg[i]);
+    memcpy(enc_msg_long,msg,msg_len);
+    if(DEBUG) for(i=0;i<roop_num;i++) printf("enc_msg_long[%d]:%ld\n",i,enc_msg_long[i]);
     /* --- 16進数表記のchar型平文をElement型に変換 --- */
     Element element_msg[roop_num/12+1];
     char element_assign_str[1000] = "";
     int element_msg_index_counter = 0;
+    int counter = 0;
     for(i=0;i<roop_num;i++) {
-        char tmp2[100];
-        convert_long_type_into_hex_string(tmp2, enc_msg[i]);
-        strcat(element_assign_str, tmp2);
-        if(i != 0 && i%11==0) {
+        char tmp[100];
+        convert_long_type_into_hex_string(tmp, enc_msg_long[i]);
+        strcat(element_assign_str, tmp);
+        counter++;
+        if(counter == 12) {
             element_init(element_msg[element_msg_index_counter], p->g3);
             element_set_str(element_msg[element_msg_index_counter++], element_assign_str);
+            strcpy(element_assign_str, "");
+            counter = 0;
         } else {
             strcat(element_assign_str, " ");
         }
     }
-    if(i%11!=0){ // 残りカスの処理
-        for(i = 12-i%11;i>0;i--) {
+    if(counter != 0){ // 残りカスの処理
+        while(1){
             strcat(element_assign_str, "0");
-            if(i!=1) strcat(element_assign_str, " ");
+            counter++;
+            if(counter!=12) strcat(element_assign_str, " ");
+            else break;
         }
         if(DEBUG) printf("element_assign_str: %s\n", element_assign_str);
         element_init(element_msg[element_msg_index_counter], p->g3);
@@ -173,6 +179,7 @@ int main(void) {
     /* --- 計算結果をchar型に変換 --- */
     unsigned long dec_msg_long[CODE_SIZE];
     long dec_msg_long_counter = 0;
+    printf("element_msg_index_counter: %d\n",element_msg_index_counter);
     for(i=0;i<element_msg_index_counter;i++){
         int element_crypto_g3_calc_result_size = element_get_str_length(element_crypto_g3_calc_result[i]);
         char *element_crypto_g3_calc_result_str;
@@ -182,18 +189,21 @@ int main(void) {
         }
         element_get_str(element_crypto_g3_calc_result_str, element_crypto_g3_calc_result[i]);
         /* --- elementから変換したcharをスペースで分割してlong型に変換 --- */
+        int j;
         char dec_msg_char[12][128];
         char *ptr;
         ptr = strtok(element_crypto_g3_calc_result_str, " ");
-        strcpy(dec_msg_char[0], ptr); i=1;
+        strcpy(dec_msg_char[0], ptr); j=1;
         while(ptr != NULL) {
             ptr = strtok(NULL, " ");
-            if(ptr != NULL) strcpy(dec_msg_char[i], ptr);
-            i++;
+            if(ptr != NULL) strcpy(dec_msg_char[j], ptr);
+            j++;
         }
-        for(i=0;i<12;i++) if(strcmp(dec_msg_char[i], "0")!=0)
-            dec_msg_long[dec_msg_long_counter++] = convert_hex_string_into_long_type(dec_msg_char[i]);
+        
+        for(j=0;j<12;j++) if(strcmp(dec_msg_char[j], "0")!=0)
+            dec_msg_long[dec_msg_long_counter++] = convert_hex_string_into_long_type(dec_msg_char[j]);
         free(element_crypto_g3_calc_result_str);
+        printf("dec_msg_long_counter: %d / i: %d\n",dec_msg_long_counter, i);
     }
     if(DEBUG) for(i=0;i<dec_msg_long_counter;i++) printf("dec_msg_long[%d]: %ld\n",i,dec_msg_long[i]);
 
@@ -213,9 +223,11 @@ int main(void) {
     element_clear(grb);
     element_clear(g3);
     element_clear(g3_inv);
-    for(i=0;i<element_msg_index_counter;i++) element_clear(element_msg[i]);
-    for(i=0;i<element_msg_index_counter;i++) element_clear(element_msg_key_calc_result[i]);
-    for(i=0;i<element_msg_index_counter;i++) element_clear(element_crypto_g3_calc_result[i]);
+    for(i=0;i<element_msg_index_counter;i++) {
+        element_clear(element_msg[i]);
+        element_clear(element_msg_key_calc_result[i]);
+        element_clear(element_crypto_g3_calc_result[i]);
+    }
     pairing_clear(p);
 
     print_green_color("--- 正常終了 ---\n");
