@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include <tepla/ec.h>
 
-#define DEBUG 1 // 0: false 1: true
+#define DEBUG 0 // 0: false 1: true
 #define MESSAGE_SIZE 10000
 #define CODE_SIZE MESSAGE_SIZE/sizeof(long)
 
@@ -21,7 +21,6 @@ void convert_long_type_into_hex_string(char *result, const unsigned long x);
 int main(void) {
 /* --- セットアップ --- */
     int i;
-//    char msg[MESSAGE_SIZE]="Hello World!";
     char msg[MESSAGE_SIZE]="We, the Japanese People, acting through our duly elected representatives in the National Diet, determined that we shall secure for ourselves and our posterity the fruits of peaceful cooperation with all nations and the blessings of liberty throughout this land, and resolved that never again shall we be visited with the horrors of war through the action of government, do proclaim the sovereignty of the people's will and do ordain and establish this Constitution, founded upon the universal principle that government is a sacred trust the authority for which is derived from the people, the powers of which are exercised by the representatives of the people, and the benefits of which are enjoyed by the people; and we reject and revoke all constitutions, ordinances, laws and rescripts in conflict herewith.";
     int msg_len = strlen(msg);
     int roop_num = msg_len/sizeof(long) + 1;
@@ -179,12 +178,11 @@ int main(void) {
     /* --- 計算結果をchar型に変換 --- */
     unsigned long dec_msg_long[CODE_SIZE];
     long dec_msg_long_counter = 0;
-    printf("element_msg_index_counter: %d\n",element_msg_index_counter);
     for(i=0;i<element_msg_index_counter;i++){
         int element_crypto_g3_calc_result_size = element_get_str_length(element_crypto_g3_calc_result[i]);
         char *element_crypto_g3_calc_result_str;
         if((element_crypto_g3_calc_result_str = (char *)malloc(element_crypto_g3_calc_result_size+1)) == NULL) {
-            printf("メモリが確保できませんでした。\n");
+            printf("Memory could not be secured.\n");
             return 0;
         }
         element_get_str(element_crypto_g3_calc_result_str, element_crypto_g3_calc_result[i]);
@@ -199,11 +197,9 @@ int main(void) {
             if(ptr != NULL) strcpy(dec_msg_char[j], ptr);
             j++;
         }
-        
         for(j=0;j<12;j++) if(strcmp(dec_msg_char[j], "0")!=0)
             dec_msg_long[dec_msg_long_counter++] = convert_hex_string_into_long_type(dec_msg_char[j]);
         free(element_crypto_g3_calc_result_str);
-        printf("dec_msg_long_counter: %d / i: %d\n",dec_msg_long_counter, i);
     }
     if(DEBUG) for(i=0;i<dec_msg_long_counter;i++) printf("dec_msg_long[%d]: %ld\n",i,dec_msg_long[i]);
 
@@ -212,6 +208,9 @@ int main(void) {
     memset(msg_decode,0,sizeof(msg_decode));
     memcpy(msg_decode,dec_msg_long,strlen(msg));
     print_green_color("message = "); printf("%s\n", msg_decode);
+    // 復号チェック
+    if(strcmp(msg, msg_decode) == 0) print_green_color("message CHECK: OK\n");
+    else{print_green_color("message CHECK: "); print_red_color("NG\n");};
 
 /* --- 領域の解放 --- */
     mpz_clears(limit, a, r, a_one, b, b_one, NULL);
@@ -230,7 +229,7 @@ int main(void) {
     }
     pairing_clear(p);
 
-    print_green_color("--- 正常終了 ---\n");
+    print_green_color("--- SUCCESS! ---\n");
 }
 
 
@@ -238,7 +237,7 @@ int main(void) {
  * mpz_tでランダムな値を生成する関数
  * $0 生成した値を入れる変数
  * $1 上限値
- * 参考サイト https://sehermitage.web.fc2.com/etc/gmp_src.html
+ * 参考サイト: https://sehermitage.web.fc2.com/etc/gmp_src.html
  -----------------------------------------------*/
 void create_mpz_t_random(mpz_t op, const mpz_t n) {
     gmp_randstate_t state;
